@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Turntable Scratch v31</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080b10;color:#eef2f7;font-family:system-ui,sans-serif;touch-action:none;user-select:none}
+body{display:flex;align-items:center;justify-content:center}
+.app{width:min(100vw,560px);height:100%;display:flex;flex-direction:column;padding:9px 12px 11px;gap:6px}
+.top-bar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+h1{font-size:15px;margin:0;letter-spacing:.08em}
+#togglePlay{border:1px solid #56606c;background:#151b23;color:#fff;border-radius:9px;padding:6px 15px;font-size:12px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+#togglePlay.playing{border-color:#e06c75;background:#2a171b;color:#ffd6da}
+.mode-toggle{display:flex;border:1px solid #3c4550;border-radius:8px;overflow:hidden;background:#10151c}
+.mode-toggle button{border:0;background:transparent;color:#8f9aa7;font-size:10px;padding:5px 8px;cursor:pointer}
+.mode-toggle button.active{background:#263140;color:#fff;font-weight:700}
+
+.patterns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.pat-btn{border:1px solid #444e5a;background:#131921;color:#cfd7e0;border-radius:8px;padding:5px 0;font-size:12px;font-weight:700;cursor:pointer}
+.pat-btn.active{border-color:#7fb3ff;background:#1b2a3f;color:#fff}
+.pat-btn.queued{border-color:#f0b45a;background:#2c2212;color:#ffdca8;animation:pulseQueued .9s infinite alternate}
+@keyframes pulseQueued{from{opacity:.65}to{opacity:1}}
+
+.controllers{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0}
+.col{display:flex;flex-direction:column;gap:5px;min-height:0}
+
+/* コントローラー上部モニター */
+.fx-monitor{
+ background:#0c1118;border:1px solid #252f3d;border-radius:9px;
+ padding:5px 7px;display:flex;flex-direction:column;gap:4px
+}
+.mon-item{display:flex;flex-direction:column;gap:2px;opacity:.55;transition:opacity .12s}
+.mon-item.active{opacity:1}
+.mon-head{display:flex;justify-content:space-between;align-items:center;font-size:9px;font-variant-numeric:tabular-nums}
+.mon-name{font-weight:700;color:#cfd7e0}
+.mon-item.active .mon-name{color:#7fb3ff}
+.mon-item.warm.active .mon-name{color:#f6ad55}
+.mon-val{color:#8f9aa7}
+.mon-item.active .mon-val{color:#fff;font-weight:600}
+.mon-bar{height:4px;background:#17202c;border-radius:3px;overflow:hidden;position:relative}
+.mon-fill{height:100%;width:0%;background:#4a90e2;transition:width .05s linear}
+.mon-item.active .mon-fill{background:#63b3ed}
+.mon-item.warm.active .mon-fill{background:#f6ad55}
+
+.ctl-stage{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;position:relative}
+.platter{
+ width:min(38vw,184px);height:min(38vw,184px);border-radius:50%;
+ position:relative;touch-action:none;overflow:hidden;
+ background:
+ radial-gradient(circle at center,#111820 0 12%,#0a0d11 12.5% 15%,
+ #171c22 15.5% 16%,#0b0e13 16.5% 30%,transparent 30.5%),
+ repeating-radial-gradient(circle,#171c22 0 1px,#0a0d11 1px 5px);
+ box-shadow:0 0 0 2px #303844,0 12px 28px #000;
+}
+.platter.held{
+ box-shadow:0 0 0 2px #63b3ed,0 0 18px rgba(99,179,237,.35),0 12px 28px #000;
+}
+.platter:before{
+ content:"";position:absolute;inset:7%;border-radius:50%;
+ border:1px solid #39424e;
+ background:repeating-conic-gradient(from 0deg,#11161c 0deg 2deg,#1b2128 2deg 4deg);
+ opacity:.65;
+}
+.label{position:absolute;inset:32%;border-radius:50%;background:#202833;border:2px solid #4b5663;display:flex;align-items:center;justify-content:center;z-index:2}
+.label span{font-size:9px;color:#aeb7c1;letter-spacing:.06em;font-weight:700;text-align:center}
+.spindle{position:absolute;left:50%;top:50%;width:9px;height:9px;transform:translate(-50%,-50%);border-radius:50%;background:#d9dee4;z-index:3;box-shadow:0 0 0 3px #161b21}
+.marker{position:absolute;inset:0;z-index:4;pointer-events:none}
+.marker:before{content:"";position:absolute;left:50%;top:5%;width:3.5px;height:17%;transform:translateX(-50%);background:#e9eef5;border-radius:4px}
+
+#ttHoldBtn{
+ position:absolute;top:6px;right:6px;z-index:5;
+ border:1px solid #4a5568;background:rgba(15,20,28,.88);color:#a0aec0;
+ border-radius:6px;padding:3px 7px;font-size:9px;font-weight:700;cursor:pointer;
+}
+#ttHoldBtn.on{
+ border-color:#63b3ed;background:#152b40;color:#bee3f8;
+}
+
+.xy-pad{
+ width:100%;height:min(38vw,184px);max-width:210px;
+ border-radius:12px;position:relative;touch-action:none;overflow:hidden;
+ background:
+ linear-gradient(to right,rgba(127,179,255,.08) 1px,transparent 1px),
+ linear-gradient(to bottom,rgba(127,179,255,.08) 1px,transparent 1px),
+ radial-gradient(circle at 50% 50%,#16202c 0%,#0b0f15 100%);
+ background-size:25% 25%,25% 25%,100% 100%;
+ border:1px solid #3c4756;
+ box-shadow:inset 0 0 24px rgba(0,0,0,.65),0 10px 24px rgba(0,0,0,.45);
+}
+.xy-pad.active{border-color:#f6ad55;box-shadow:inset 0 0 26px rgba(246,173,85,.16),0 0 16px rgba(246,173,85,.24)}
+.xy-cross-x,.xy-cross-y{position:absolute;background:rgba(246,173,85,.32);pointer-events:none;display:none}
+.xy-cross-x{left:0;right:0;height:1px;top:50%}
+.xy-cross-y{top:0;bottom:0;width:1px;left:50%}
+.xy-puck{
+ position:absolute;width:20px;height:20px;border-radius:50%;
+ transform:translate(-50%,-50%);left:50%;top:50%;
+ background:#f6ad55;border:2px solid #fff;
+ box-shadow:0 0 12px rgba(246,173,85,.85);
+ pointer-events:none;z-index:2;opacity:.45;
+}
+.xy-pad.active .xy-puck{opacity:1}
+
+#xyHoldOffBtn{
+ position:absolute;top:6px;right:6px;z-index:5;
+ border:1px solid #4a5568;background:rgba(15,20,28,.88);color:#a0aec0;
+ border-radius:6px;padding:3px 7px;font-size:9px;font-weight:700;cursor:pointer;
+}
+#xyHoldOffBtn.lit{
+ border-color:#f6ad55;background:#3a250b;color:#ffe3b8;
+}
+
+/* 各コントローラー下部セレクタ */
+.sel-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.fx-sel{
+ border:1px solid #394352;background:#131922;color:#aeb7c1;
+ border-radius:7px;padding:6px 2px;font-size:10px;font-weight:700;
+ cursor:pointer;text-align:center
+}
+.fx-sel.tt.on{border-color:#63b3ed;background:#152b40;color:#bee3f8}
+.fx-sel.xy.on{border-color:#f6ad55;background:#33220d;color:#fbd38d}
+
+.info-bpm{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#0e131a;border:1px solid #262f3a;border-radius:9px;padding:5px 10px;font-size:11px;color:#8f9aa7}
+.info-bpm b{color:#e8edf2;font-variant-numeric:tabular-nums}
+#bpmDisplayBtn{border:1px solid #56606c;background:#18202b;color:#fff;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
+.info-bpm input[type="range"]{flex:1;accent-color:#7fb3ff;height:18px;touch-action:pan-x;min-width:70px}
+.status-line{font-size:10px;color:#7c8794;text-align:center;height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 3桁直接入力パッドモーダル */
+.keypad-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:50}
+.keypad-backdrop.open{display:flex}
+.keypad-box{width:min(88vw,300px);background:#121720;border:1px solid #465160;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 50px #000}
+.keypad-screen{background:#090c11;border:1px solid #2e3744;border-radius:8px;padding:10px;text-align:center;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.16em;color:#7fb3ff}
+.keypad-sub{font-size:11px;color:#8f9aa7;text-align:center}
+.keypad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.keypad-grid button{border:1px solid #3c4654;background:#19212d;color:#fff;border-radius:8px;padding:11px 0;font-size:16px;font-weight:600;cursor:pointer}
+.keypad-grid button.act{background:#243247;border-color:#6ca2f0;font-size:13px}
+.keypad-grid button.clr{background:#2a191d;border-color:#9e545c;font-size:13px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top-bar">
+    <h1>BEAT × TT / XY</h1>
+    <div style="display:flex;align-items:center;gap:6px">
+      <div class="mode-toggle" title="パターン切り替えタイミング">
+        <button id="modeNow" type="button" class="active">NOW</button>
+        <button id="modeBar" type="button">NEXT</button>
+      </div>
+      <button id="togglePlay" type="button">START</button>
+    </div>
+  </div>
+
+  <div class="patterns" role="group" aria-label="パターン展開">
+    <button class="pat-btn active" data-pat="A" type="button">A</button>
+    <button class="pat-btn" data-pat="B" type="button">B</button>
+    <button class="pat-btn" data-pat="C" type="button">C</button>
+    <button class="pat-btn" data-pat="D" type="button">D</button>
+  </div>
+
+  <div class="controllers">
+    <!-- 左：ターンテーブル（SCR / RPT / STTR / SCRW） -->
+    <div class="col">
+      <div class="fx-monitor" id="ttMonitor">
+        <div class="mon-item" id="mon-scr">
+          <div class="mon-head"><span class="mon-name">SCRATCH</span><span class="mon-val" id="val-scr">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-scr"></div></div>
+        </div>
+        <div class="mon-item" id="mon-repeat">
+          <div class="mon-head"><span class="mon-name">BEAT REPEAT</span><span class="mon-val" id="val-repeat">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-repeat"></div></div>
+        </div>
+        <div class="mon-item" id="mon-stutter">
+          <div class="mon-head"><span class="mon-name">STUTTER</span><span class="mon-val" id="val-stutter">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-stutter"></div></div>
+        </div>
+        <div class="mon-item" id="mon-screw">
+          <div class="mon-head"><span class="mon-name">SCREW</span><span class="mon-val" id="val-screw">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-screw"></div></div>
+        </div>
+      </div>
+
+      <div class="ctl-stage">
+        <button id="ttHoldBtn" type="button" title="ターンテーブル位置ホールド切替">HOLD: OFF</button>
+        <div class="platter" id="platter">
+          <div class="marker" id="marker"></div>
+          <div class="label"><span id="ttBadge">TT OFF</span></div>
+          <div class="spindle"></div>
+        </div>
+      </div>
+
+      <div class="sel-grid-4" aria-label="ターンテーブルエフェクト選択">
+        <button class="fx-sel tt" data-tt="scr" type="button">SCR</button>
+        <button class="fx-sel tt" data-tt="repeat" type="button">RPT</button>
+        <button class="fx-sel tt" data-tt="stutter" type="button">STTR</button>
+        <button class="fx-sel tt" data-tt="screw" type="button">SCRW</button>
+      </div>
+    </div>
+
+    <!-- 右：XYパッド（LPF / HPF / BIT / FLG） -->
+    <div class="col">
+      <div class="fx-monitor" id="xyMonitor">
+        <div class="mon-item warm" id="mon-lpf">
+          <div class="mon-head"><span class="mon-name">LPF (X:Hz Y:Q)</span><span class="mon-val" id="val-lpf">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-lpf"></div></div>
+        </div>
+        <div class="mon-item warm" id="mon-hpf">
+          <div class="mon-head"><span class="mon-name">HPF (X:Hz Y:Q)</span><span class="mon-val" id="val-hpf">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-hpf"></div></div>
+        </div>
+        <div class="mon-item warm" id="mon-bit">
+          <div class="mon-head"><span class="mon-name">BIT (X:BIT Y:FOLD)</span><span class="mon-val" id="val-bit">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-bit"></div></div>
+        </div>
+        <div class="mon-item warm" id="mon-flg">
+          <div class="mon-head"><span class="mon-name">FLG (X:SPD Y:DPT)</span><span class="mon-val" id="val-flg">OFF</span></div>
+          <div class="mon-bar"><div class="mon-fill" id="bar-flg"></div></div>
+        </div>
+      </div>
+
+      <div class="ctl-stage">
+        <div class="xy-pad" id="xyPad">
+          <button id="xyHoldOffBtn" type="button" title="XYホールド解除">HOLD OFF</button>
+          <div class="xy-cross-x" id="xyCrossX"></div>
+          <div class="xy-cross-y" id="xyCrossY"></div>
+          <div class="xy-puck" id="xyPuck"></div>
+        </div>
+      </div>
+
+      <div class="sel-grid-4" aria-label="XYパッドエフェクト選択">
+        <button class="fx-sel xy" data-xy="lpf" type="button">LPF</button>
+        <button class="fx-sel xy" data-xy="hpf" type="button">HPF</button>
+        <button class="fx-sel xy" data-xy="bit" type="button">BIT</button>
+        <button class="fx-sel xy" data-xy="flg" type="button">FLG</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-bpm">
+    <span>PAT <b id="patEl">A</b> PH <b id="phaseEl">0.00</b></span>
+    <button id="bpmDisplayBtn" type="button" title="タップして3桁入力">BPM <span id="bpm">140</span></button>
+    <input id="bpmSlider" type="range" min="80" max="180" step="1" value="140" aria-label="BPMスライダー">
+  </div>
+  <div class="status-line" id="status">READY — TTのHOLDは初期OFF（HOLDボタンで位置固定可能）</div>
+</div>
+
+<!-- 3桁直接入力パッドモーダル -->
+<div class="keypad-backdrop" id="keypadModal" role="dialog" aria-modal="true" aria-label="BPM 3桁入力">
+  <div class="keypad-box">
+    <div class="keypad-sub">BPM 3桁入力（2桁も可 / 80〜180）</div>
+    <div class="keypad-screen" id="keypadScreen">---</div>
+    <div class="keypad-grid">
+      <button data-k="1" type="button">1</button>
+      <button data-k="2" type="button">2</button>
+      <button data-k="3" type="button">3</button>
+      <button data-k="4" type="button">4</button>
+      <button data-k="5" type="button">5</button>
+      <button data-k="6" type="button">6</button>
+      <button data-k="7" type="button">7</button>
+      <button data-k="8" type="button">8</button>
+      <button data-k="9" type="button">9</button>
+      <button class="clr" id="kpClear" type="button">CLR</button>
+      <button data-k="0" type="button">0</button>
+      <button class="act" id="kpOk" type="button">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let ctx, master, beatGain, scratchGain;
+let lpfNode, hpfNode, bitNode, bitTrimGain, flgDelay, flgFb, flgWet, flgLfo, flgLfoGain, dryBus;
+let BPM=140;
+let bufferBPM=140;
+
+const _F={D5:587.33,E5:659.25,F5s:739.99,G5:783.99,A5:880,B5:987.77,D6:1174.66,A4:440};
+
+const PATTERNS={
+  A:{
+    bars:['7/8','12/8'],
+    barDef:{
+      '7/8':{ steps:14, starts:[0,6,10],
+        kick:[0,3,10], snare:[6], ghost:[9,13], open:[12], wood:[8], fill:[],
+        hi:[_F.D5,_F.F5s,_F.A5,_F.D6,_F.A5,_F.F5s, _F.E5,_F.G5,_F.B5,_F.G5, _F.D5,_F.A5,_F.B5,_F.A5],
+        low:[146.83,164.81,146.83] },
+      '12/8':{ steps:24, starts:[0,6,12,18],
+        kick:[0,3,12,16], snare:[6,18], ghost:[15], open:[10], wood:[9], fill:[21,22,23],
+        hi:[_F.D5,_F.F5s,_F.A5,_F.D6,_F.A5,_F.F5s, _F.E5,_F.G5,_F.B5,_F.D6,_F.B5,_F.G5,
+            _F.F5s,_F.A5,_F.D6,_F.B5,_F.A5,_F.F5s, _F.B5,_F.G5,_F.E5,_F.G5,_F.B5,_F.D6],
+        low:[146.83,164.81,196.00,146.83] }
+    },
+    pad:[293.66,440,659.25]
+  },
+  B:{
+    bars:['7/8','12/8'],
+    barDef:{
+      '7/8':{ steps:14, starts:[0,6,10],
+        kick:[0,3,6,10,12], snare:[4,10], ghost:[2,8,13], open:[5,12], wood:[7,11], fill:[13],
+        hi:[_F.A5,_F.D6,_F.A5,_F.F5s,_F.A5,_F.D6, _F.B5,_F.G5,_F.E5,_F.G5, _F.D6,_F.A5,_F.B5,_F.D6],
+        low:[146.83,196.00,164.81] },
+      '12/8':{ steps:24, starts:[0,6,12,18],
+        kick:[0,3,6,9,12,15,18,21], snare:[4,10,16,22], ghost:[2,8,14,20], open:[5,17], wood:[7,13,19], fill:[22,23],
+        hi:[_F.D6,_F.A5,_F.F5s,_F.D6,_F.A5,_F.F5s, _F.E5,_F.B5,_F.G5,_F.D6,_F.B5,_F.G5,
+            _F.F5s,_F.D6,_F.A5,_F.B5,_F.A5,_F.F5s, _F.D6,_F.B5,_F.G5,_F.E5,_F.G5,_F.A5],
+        low:[146.83,164.81,196.00,220.00] }
+    },
+    pad:[293.66,440,587.33]
+  },
+  C:{
+    bars:['7/8','12/8'],
+    barDef:{
+      '7/8':{ steps:14, starts:[0,6,10],
+        kick:[0,10], snare:[6], ghost:[2,5,9,13], open:[13], wood:[3,6,8,11], fill:[],
+        hi:[_F.E5,_F.A4,_F.G5,_F.A4,_F.F5s,_F.A4, _F.B5,_F.A4,_F.G5,_F.A4, _F.E5,_F.A4,_F.D5,_F.A4],
+        low:[146.83,146.83,164.81] },
+      '12/8':{ steps:24, starts:[0,6,12,18],
+        kick:[0,12,18], snare:[6,18], ghost:[3,9,15,21], open:[11,23], wood:[2,5,8,14,20], fill:[21,22,23],
+        hi:[_F.A5,_F.E5,_F.G5,_F.E5,_F.F5s,_F.E5, _F.B5,_F.G5,_F.D6,_F.B5,_F.G5,_F.E5,
+            _F.A5,_F.F5s,_F.D6,_F.A5,_F.F5s,_F.E5, _F.G5,_F.E5,_F.B5,_F.G5,_F.E5,_F.D5],
+        low:[196.00,164.81,146.83,164.81] }
+    },
+    pad:[220.00,440,659.25]
+  },
+  D:{
+    bars:['7/8','12/8'],
+    barDef:{
+      '7/8':{ steps:14, starts:[0,6,10],
+        kick:[0,3,6,9,12], snare:[5,11], ghost:[1,7,13], open:[4,10], wood:[2,8], fill:[12,13],
+        hi:[_F.D6,_F.B5,_F.A5,_F.G5,_F.F5s,_F.E5, _F.D6,_F.A5,_F.B5,_F.G5, _F.A5,_F.F5s,_F.D5,_F.E5],
+        low:[164.81,196.00,220.00] },
+      '12/8':{ steps:24, starts:[0,6,12,18],
+        kick:[0,4,8,12,16,20], snare:[6,14,18], ghost:[2,10,15,22], open:[5,11,17,23], wood:[3,9,15,21], fill:[20,21,22,23],
+        hi:[_F.D6,_F.A5,_F.F5s,_F.D6,_F.B5,_F.G5, _F.E5,_F.G5,_F.B5,_F.D6,_F.B5,_F.G5,
+            _F.F5s,_F.A5,_F.D6,_F.B5,_F.A5,_F.F5s, _F.E5,_F.G5,_F.B5,_F.D6,_F.B5,_F.A5],
+        low:[146.83,220.00,196.00,164.81] }
+    },
+    pad:[293.66,440,739.99]
+  }
+};
+
+let currentPat='A', queuedPat=null, switchAtLoopEnd=false;
+
+function activeSpec(){ return PATTERNS[currentPat]; }
+function totalStepsOf(spec){ return spec.bars.reduce((a,k)=>a+spec.barDef[k].steps,0); }
+function loopDurOf(spec, bpm=bufferBPM){ return totalStepsOf(spec)*60/(4*bpm); }
+function barOffsetsOf(spec){
+  let o=0;
+  return spec.bars.map(k=>{const r={def:spec.barDef[k],o}; o+=spec.barDef[k].steps; return r;});
+}
+function tempoRatio(){ return BPM / bufferBPM; }
+
+let beatBuf, scratchBuf, scratchRevBuf, t0=0;
+let playing=false, dragging=false, scratchingActive=false;
+let angle=0, ttDeltaAngle=0;
+let lastT=0, velocity=0, lastPointerAngle=0, dir=1;
+
+const ttSel={ scr:false, repeat:false, stutter:false, screw:false };
+const xySel={ lpf:false, hpf:false, bit:false, flg:false };
+
+const state={
+  // TT側ホールド（基本はfalse=OFF）
+  ttHoldEnabled:false,
+  ttLatched:false,
+  // XY側ホールド
+  xyX:0.5, xyY:0.5, xyHolding:false, xyDragging:false,
+  lpfFreq:22000, lpfQ:1.5, lpfNorm:0,
+  hpfFreq:10, hpfQ:1.5, hpfNorm:0,
+  bitX:0, bitY:0, bitNorm:0,
+  flgRate:1.2, flgDepth:0, flgNorm:0,
+  scrNorm:0, scrSpeedText:'0.00',
+  repeatDiv:8, repeatPos01:0.5,
+  stutterDiv:16, stutterPos01:0.5,
+  screwRate:1.0, screwPos01:0.5, screwActive:false
+};
+
+const platter=document.getElementById('platter');
+const marker=document.getElementById('marker');
+const ttBadge=document.getElementById('ttBadge');
+const ttHoldBtn=document.getElementById('ttHoldBtn');
+const xyPad=document.getElementById('xyPad');
+const xyPuck=document.getElementById('xyPuck');
+const xyCrossX=document.getElementById('xyCrossX');
+const xyCrossY=document.getElementById('xyCrossY');
+const xyHoldOffBtn=document.getElementById('xyHoldOffBtn');
+const togglePlayBtn=document.getElementById('togglePlay');
+const modeNowBtn=document.getElementById('modeNow');
+const modeBarBtn=document.getElementById('modeBar');
+const patButtons=[...document.querySelectorAll('.pat-btn')];
+const patEl=document.getElementById('patEl');
+const statusEl=document.getElementById('status');
+const phaseEl=document.getElementById('phaseEl');
+const bpmEl=document.getElementById('bpm');
+const bpmSlider=document.getElementById('bpmSlider');
+const bpmDisplayBtn=document.getElementById('bpmDisplayBtn');
+
+// ビットクラッシャー：矩形化によるRMS上昇を見越してカーブ側の最大出力自体を0.62に抑制
+function makeExtremeBitCurve(bitAmt01, foldAmt01){
+  const n=1024, curve=new Float32Array(n);
+  if(bitAmt01<=0.01 && foldAmt01<=0.01){
+    for(let i=0;i<n;i++) curve[i]=(i/(n-1))*2-1;
+    return curve;
+  }
+  const steps = Math.max(2, Math.round(32 * Math.pow(1 - bitAmt01, 2.6) + 2));
+  const foldGain = 1 + foldAmt01 * 5.2;
+  const intensity = Math.min(1, Math.max(bitAmt01, foldAmt01));
+  // 歪みが深いほど最大振幅を下げて実効音量（RMS）の膨張を相殺
+  const maxOut = 1.0 - intensity * 0.38; // 最大 0.62 まで抑制
+  for(let i=0;i<n;i++){
+    const raw = (i/(n-1))*2 - 1;
+    let folded = foldAmt01>0.01 ? Math.sin(raw * Math.PI * 0.5 * foldGain) : raw;
+    let q = Math.round(folded * steps) / steps;
+    curve[i] = Math.max(-maxOut, Math.min(maxOut, q * maxOut));
+  }
+  return curve;
+}
+
+function setupFxChain(){
+  dryBus=ctx.createGain(); dryBus.gain.value=1;
+
+  lpfNode=ctx.createBiquadFilter();
+  lpfNode.type='lowpass';
+  lpfNode.frequency.value=22000;
+  lpfNode.Q.value=1.5;
+
+  hpfNode=ctx.createBiquadFilter();
+  hpfNode.type='highpass';
+  hpfNode.frequency.value=10;
+  hpfNode.Q.value=1.5;
+
+  bitNode=ctx.createWaveShaper();
+  bitNode.curve=makeExtremeBitCurve(0,0);
+  bitNode.oversample='none';
+
+  bitTrimGain=ctx.createGain();
+  bitTrimGain.gain.value=1.0;
+
+  flgDelay=ctx.createDelay(0.05);
+  flgDelay.delayTime.value=0.0045;
+  flgFb=ctx.createGain();
+  flgFb.gain.value=0.84;
+  flgWet=ctx.createGain();
+  flgWet.gain.value=0;
+  flgLfo=ctx.createOscillator();
+  flgLfo.type='triangle';
+  flgLfo.frequency.value=1.4;
+  flgLfoGain=ctx.createGain();
+  flgLfoGain.gain.value=0.0038;
+  flgLfo.connect(flgLfoGain);
+  flgLfoGain.connect(flgDelay.delayTime);
+  flgLfo.start();
+
+  flgDelay.connect(flgFb);
+  flgFb.connect(flgDelay);
+  flgDelay.connect(flgWet);
+
+  dryBus.connect(lpfNode);
+  lpfNode.connect(hpfNode);
+  hpfNode.connect(bitNode);
+  bitNode.connect(bitTrimGain);
+  bitTrimGain.connect(flgDelay);
+  bitTrimGain.connect(ctx.destination);
+  flgWet.connect(ctx.destination);
+
+  master=ctx.createGain(); master.gain.value=.9; master.connect(dryBus);
+  beatGain=ctx.createGain(); beatGain.gain.value=.26; beatGain.connect(master);
+  scratchGain=ctx.createGain(); scratchGain.gain.value=.9; scratchGain.connect(master);
+  applyXyAudio();
+}
+
+function applyXyAudio(){
+  if(!ctx)return;
+  const t=ctx.currentTime;
+
+  if(xySel.lpf && state.xyHolding){
+    const xInv = 1 - state.xyX;
+    const freq = 20000 * Math.pow(95/20000, Math.pow(xInv, 0.78));
+    const q = 1.5 + Math.pow(state.xyY, 1.3) * 19.5;
+    state.lpfFreq=freq;
+    state.lpfQ=q;
+    state.lpfNorm=(xInv*0.6 + state.xyY*0.4);
+    lpfNode.frequency.setTargetAtTime(freq, t, 0.012);
+    lpfNode.Q.setTargetAtTime(q, t, 0.015);
+  }else{
+    state.lpfFreq=22000; state.lpfQ=1.5; state.lpfNorm=0;
+    lpfNode.frequency.setTargetAtTime(22000, t, 0.015);
+    lpfNode.Q.setTargetAtTime(1.5, t, 0.015);
+  }
+
+  if(xySel.hpf && state.xyHolding){
+    const freq = 20 * Math.pow(4200/20, Math.pow(state.xyX, 0.85));
+    const q = 1.5 + Math.pow(state.xyY, 1.3) * 18.5;
+    state.hpfFreq=freq;
+    state.hpfQ=q;
+    state.hpfNorm=(state.xyX*0.6 + state.xyY*0.4);
+    hpfNode.frequency.setTargetAtTime(freq, t, 0.012);
+    hpfNode.Q.setTargetAtTime(q, t, 0.015);
+  }else{
+    state.hpfFreq=10; state.hpfQ=1.5; state.hpfNorm=0;
+    hpfNode.frequency.setTargetAtTime(10, t, 0.015);
+    hpfNode.Q.setTargetAtTime(1.5, t, 0.015);
+  }
+
+  // BIT：ONにした直後からしっかりゲインを絞り、矩形波化による音圧過多を防止
+  if(xySel.bit && state.xyHolding){
+    state.bitX=state.xyX;
+    state.bitY=state.xyY;
+    state.bitNorm=(state.xyX*0.5 + state.xyY*0.5);
+    bitNode.curve = makeExtremeBitCurve(state.xyX, state.xyY);
+    const compGain = 0.62 - (state.xyX*0.20 + state.xyY*0.18); // 0.24〜0.62 に抑制
+    bitTrimGain.gain.setTargetAtTime(Math.max(0.24, compGain), t, 0.010);
+  }else{
+    state.bitX=0; state.bitY=0; state.bitNorm=0;
+    bitNode.curve = makeExtremeBitCurve(0,0);
+    bitTrimGain.gain.setTargetAtTime(1.0, t, 0.015);
+  }
+
+  if(xySel.flg && state.xyHolding){
+    const rate = 0.25 + Math.pow(state.xyX, 1.4) * 8.5;
+    const depth = state.xyY;
+    state.flgRate=rate;
+    state.flgDepth=depth;
+    state.flgNorm=(state.xyX*0.4 + depth*0.6);
+    flgWet.gain.setTargetAtTime(Math.min(0.95, 0.25 + depth*0.7), t, 0.012);
+    flgLfo.frequency.setTargetAtTime(rate, t, 0.015);
+    flgLfoGain.gain.setTargetAtTime(0.0008 + depth*0.004, t, 0.015);
+    flgFb.gain.setTargetAtTime(0.55 + depth*0.35, t, 0.015);
+  }else{
+    state.flgDepth=0; state.flgNorm=0;
+    flgWet.gain.setTargetAtTime(0, t, 0.015);
+  }
+}
+
+// REPEAT / STUTTER エンジン（ビート＋ウワモノ両方に同時適用）
+let momBeatSrc=null, momBeatGain=null;
+let momUwaSrc=null, momUwaGain=null;
+let stutterTimer=null, activeMomMode=null, activeMomDiv=0;
+
+function stopMomentarySourcesOnly(){
+  if(momBeatSrc){
+    const sB=momBeatSrc, gB=momBeatGain; momBeatSrc=null; momBeatGain=null;
+    const t=ctx.currentTime;
+    gB.gain.cancelScheduledValues(t);
+    gB.gain.setTargetAtTime(0,t,0.005);
+    try{sB.stop(t+0.04)}catch{}
+  }
+  if(momUwaSrc){
+    const sU=momUwaSrc, gU=momUwaGain; momUwaSrc=null; momUwaGain=null;
+    const t=ctx.currentTime;
+    gU.gain.cancelScheduledValues(t);
+    gU.gain.setTargetAtTime(0,t,0.005);
+    try{sU.stop(t+0.04)}catch{}
+  }
+}
+
+function stopMomentaryAudio(){
+  if(stutterTimer){ clearInterval(stutterTimer); stutterTimer=null; }
+  stopMomentarySourcesOnly();
+  activeMomMode=null;
+  activeMomDiv=0;
+  if(ctx && playing){
+    if(beatSrcGain) beatSrcGain.gain.setTargetAtTime(1, ctx.currentTime, 0.012);
+    if(uwaGain && !scratchingActive) uwaGain.gain.setTargetAtTime(UWA_LEVEL, ctx.currentTime, 0.012);
+  }
+}
+
+function updateRepeatEngine(div){
+  if(!ctx||!playing||!beatBuf||!scratchBuf)return;
+  const cleanDiv=Math.max(2, Math.min(32, Math.round(div)));
+  if(activeMomMode==='repeat' && activeMomDiv===cleanDiv && momBeatSrc) return;
+  stopMomentarySourcesOnly();
+
+  activeMomMode='repeat';
+  activeMomDiv=cleanDiv;
+  state.repeatDiv=cleanDiv;
+
+  const dur=beatBuf.duration;
+  const beatSec=60/BPM;
+  const loopLen=Math.max(0.018, Math.min(dur*0.5, (beatSec*4)/cleanDiv));
+  const offset=(currentPhase()*dur) % Math.max(0.01, dur-loopLen);
+  const rate=state.screwActive ? Math.max(0.08, tempoRatio()*state.screwRate) : tempoRatio();
+
+  const sB=ctx.createBufferSource();
+  sB.buffer=beatBuf;
+  sB.loop=true;
+  sB.loopStart=offset;
+  sB.loopEnd=offset+loopLen;
+  sB.playbackRate.value=rate;
+  const gB=ctx.createGain(); gB.gain.value=1.0;
+  sB.connect(gB); gB.connect(beatGain);
+  sB.start(0, offset);
+  momBeatSrc=sB; momBeatGain=gB;
+  if(beatSrcGain) beatSrcGain.gain.setTargetAtTime(0.02, ctx.currentTime, 0.006);
+
+  if(!scratchingActive){
+    const sU=ctx.createBufferSource();
+    sU.buffer=scratchBuf;
+    sU.loop=true;
+    sU.loopStart=offset;
+    sU.loopEnd=offset+loopLen;
+    sU.playbackRate.value=rate;
+    const gU=ctx.createGain(); gU.gain.value=UWA_LEVEL;
+    sU.connect(gU); gU.connect(scratchGain);
+    sU.start(0, offset);
+    momUwaSrc=sU; momUwaGain=gU;
+    if(uwaGain) uwaGain.gain.setTargetAtTime(0.01, ctx.currentTime, 0.006);
+  }
+}
+
+function updateStutterEngine(div){
+  if(!ctx||!playing||!beatBuf||!scratchBuf)return;
+  const cleanDiv=Math.max(4, Math.min(64, Math.round(div)));
+  if(activeMomMode==='stutter' && activeMomDiv===cleanDiv) return;
+  if(stutterTimer){ clearInterval(stutterTimer); stutterTimer=null; }
+  stopMomentarySourcesOnly();
+
+  activeMomMode='stutter';
+  activeMomDiv=cleanDiv;
+  state.stutterDiv=cleanDiv;
+
+  const beatSec=60/BPM;
+  const sliceLen=Math.max(0.012, (beatSec*4)/cleanDiv);
+  const intervalMs=Math.max(14, sliceLen*1000);
+
+  if(beatSrcGain) beatSrcGain.gain.setTargetAtTime(0.02, ctx.currentTime, 0.006);
+  if(uwaGain && !scratchingActive) uwaGain.gain.setTargetAtTime(0.01, ctx.currentTime, 0.006);
+
+  const triggerSlice=()=>{
+    if(!ctx||!playing||activeMomMode!=='stutter')return;
+    const off=currentPhase()*beatBuf.duration;
+    const now=ctx.currentTime;
+    const rate=state.screwActive ? Math.max(0.08, tempoRatio()*state.screwRate) : tempoRatio();
+
+    const sB=ctx.createBufferSource();
+    sB.buffer=beatBuf;
+    sB.playbackRate.value=rate;
+    const gB=ctx.createGain();
+    gB.gain.setValueAtTime(0.001, now);
+    gB.gain.linearRampToValueAtTime(1.0, now+0.003);
+    gB.gain.setTargetAtTime(0.0001, now+sliceLen*0.72, 0.006);
+    sB.connect(gB); gB.connect(beatGain);
+    sB.start(now, off, Math.min(beatBuf.duration-off, sliceLen));
+    try{sB.stop(now+sliceLen+0.02)}catch{}
+
+    if(!scratchingActive){
+      const sU=ctx.createBufferSource();
+      sU.buffer=scratchBuf;
+      sU.playbackRate.value=rate;
+      const gU=ctx.createGain();
+      gU.gain.setValueAtTime(0.001, now);
+      gU.gain.linearRampToValueAtTime(UWA_LEVEL, now+0.003);
+      gU.gain.setTargetAtTime(0.0001, now+sliceLen*0.72, 0.006);
+      sU.connect(gU); gU.connect(scratchGain);
+      sU.start(now, off, Math.min(scratchBuf.duration-off, sliceLen));
+      try{sU.stop(now+sliceLen+0.02)}catch{}
+    }
+  };
+  triggerSlice();
+  stutterTimer=setInterval(triggerSlice, intervalMs);
+}
+
+function applyScrewAndTempo(){
+  if(!ctx)return;
+  const t=ctx.currentTime;
+  const base=tempoRatio();
+  const targetRate = state.screwActive ? Math.max(0.08, base * state.screwRate) : base;
+  if(beatSrc) beatSrc.playbackRate.setTargetAtTime(targetRate, t, 0.015);
+  if(uwaSrc && !scratchingActive) uwaSrc.playbackRate.setTargetAtTime(targetRate, t, 0.015);
+  if(momBeatSrc) momBeatSrc.playbackRate.setTargetAtTime(targetRate, t, 0.015);
+  if(momUwaSrc) momUwaSrc.playbackRate.setTargetAtTime(targetRate, t, 0.015);
+}
+
+function ttSignedPosition01(){
+  const norm = 0.5 + (ttDeltaAngle / (Math.PI * 1.1));
+  return Math.max(0, Math.min(1, norm));
+}
+
+function isTtFxEngaged(){
+  return dragging || (state.ttHoldEnabled && state.ttLatched);
+}
+
+function updateMonitors(){
+  const setMon=(id, active, pct, text)=>{
+    const item=document.getElementById(`mon-${id}`);
+    const bar=document.getElementById(`bar-${id}`);
+    const val=document.getElementById(`val-${id}`);
+    item.classList.toggle('active', active);
+    bar.style.width=`${Math.max(0,Math.min(100,pct))}%`;
+    val.textContent=text;
+  };
+
+  const lpfActive = xySel.lpf && state.xyHolding;
+  setMon('lpf', lpfActive, lpfActive ? state.lpfNorm*100 : 0,
+    !xySel.lpf ? 'OFF' : lpfActive ? `${state.lpfFreq>=1000?(state.lpfFreq/1000).toFixed(1)+'k':Math.round(state.lpfFreq)+'Hz'} Q${state.lpfQ.toFixed(1)}` : 'HOLD STANDBY');
+
+  const hpfActive = xySel.hpf && state.xyHolding;
+  setMon('hpf', hpfActive, hpfActive ? state.hpfNorm*100 : 0,
+    !xySel.hpf ? 'OFF' : hpfActive ? `${Math.round(state.hpfFreq)}Hz Q${state.hpfQ.toFixed(1)}` : 'HOLD STANDBY');
+
+  const bitActive = xySel.bit && state.xyHolding;
+  setMon('bit', bitActive, bitActive ? state.bitNorm*100 : 0,
+    !xySel.bit ? 'OFF' : bitActive ? `B${Math.round(state.bitX*100)} F${Math.round(state.bitY*100)}` : 'HOLD STANDBY');
+
+  const flgActive = xySel.flg && state.xyHolding;
+  setMon('flg', flgActive, flgActive ? state.flgNorm*100 : 0,
+    !xySel.flg ? 'OFF' : flgActive ? `${state.flgRate.toFixed(1)}Hz ${Math.round(state.flgDepth*100)}%` : 'HOLD STANDBY');
+
+  const engaged = isTtFxEngaged();
+
+  const scrOn = ttSel.scr && scratchingActive;
+  setMon('scr', scrOn, scrOn ? Math.min(100, state.scrNorm*100) : 0,
+    !ttSel.scr ? 'OFF' : scrOn ? `${state.scrSpeedText}x ${dir>0?'▶':'◀'}` : 'STANDBY');
+
+  const rptOn = ttSel.repeat && engaged;
+  setMon('repeat', rptOn, rptOn ? state.repeatPos01*100 : 50,
+    !ttSel.repeat ? 'OFF' : rptOn ? `1/${state.repeatDiv} (${state.repeatPos01>=0.5?'+':'-'})` : 'STANDBY');
+
+  const sttrOn = ttSel.stutter && engaged;
+  setMon('stutter', sttrOn, sttrOn ? state.stutterPos01*100 : 50,
+    !ttSel.stutter ? 'OFF' : sttrOn ? `1/${state.stutterDiv} (${state.stutterPos01>=0.5?'FAST':'SLOW'})` : 'STANDBY');
+
+  const scrwOn = ttSel.screw && state.screwActive;
+  setMon('screw', scrwOn, scrwOn ? state.screwPos01*100 : 50,
+    !ttSel.screw ? 'OFF' : scrwOn ? `${state.screwRate.toFixed(2)}x (${state.screwRate>=1?'ACCEL':'SLOW'})` : 'STANDBY');
+
+  const activeList=Object.entries(ttSel).filter(([,v])=>v).map(([k])=>k.toUpperCase());
+  ttBadge.textContent = activeList.length ? activeList.join('+') : 'TT OFF';
+
+  ttHoldBtn.textContent = state.ttHoldEnabled ? 'HOLD: ON' : 'HOLD: OFF';
+  ttHoldBtn.classList.toggle('on', state.ttHoldEnabled);
+  platter.classList.toggle('held', state.ttHoldEnabled && state.ttLatched);
+
+  xyHoldOffBtn.classList.toggle('lit', state.xyHolding);
+}
+
+function evaluateEffects(){
+  applyXyAudio();
+
+  const engaged = isTtFxEngaged();
+  const pos01 = ttSignedPosition01();
+
+  if(ttSel.repeat && engaged){
+    state.repeatPos01 = pos01;
+    const divs=[2,4,8,16,32];
+    const idx=Math.min(divs.length-1, Math.floor(pos01*divs.length));
+    updateRepeatEngine(divs[idx]);
+  }else if(activeMomMode==='repeat'){
+    stopMomentaryAudio();
+    state.repeatPos01=0.5;
+  }
+
+  if(ttSel.stutter && engaged){
+    state.stutterPos01 = pos01;
+    const divs=[4,8,16,32,64];
+    const idx=Math.min(divs.length-1, Math.floor(pos01*divs.length));
+    updateStutterEngine(divs[idx]);
+  }else if(activeMomMode==='stutter'){
+    stopMomentaryAudio();
+    state.stutterPos01=0.5;
+  }
+
+  if(ttSel.screw && engaged){
+    state.screwPos01 = pos01;
+    state.screwActive = true;
+    if(pos01 < 0.5){
+      const t = pos01 / 0.5;
+      state.screwRate = 0.08 + Math.pow(t, 1.2) * 0.92;
+    }else{
+      const t = (pos01 - 0.5) / 0.5;
+      state.screwRate = 1.0 + t * 0.85;
+    }
+  }else{
+    state.screwActive = false;
+    state.screwRate = 1.0;
+    state.screwPos01 = 0.5;
+  }
+  applyScrewAndTempo();
+
+  updateMonitors();
+}
+
+// TT側 HOLDトグルボタン（基本はOFF）
+ttHoldBtn.addEventListener('pointerdown',(e)=>{
+  e.stopPropagation();
+});
+ttHoldBtn.addEventListener('click',(e)=>{
+  e.stopPropagation();
+  state.ttHoldEnabled = !state.ttHoldEnabled;
+  if(!state.ttHoldEnabled){
+    // HOLDをOFFに戻したらラッチ・変位も即座に解除
+    state.ttLatched = false;
+    if(!dragging) ttDeltaAngle = 0;
+  }
+  evaluateEffects();
+});
+
+document.querySelectorAll('.fx-sel.tt').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const key=btn.dataset.tt;
+    ttSel[key]=!ttSel[key];
+    btn.classList.toggle('on', ttSel[key]);
+    if(key==='scr' && !ttSel.scr && scratchingActive){
+      exitScratchMode();
+    }
+    evaluateEffects();
+  });
+});
+
+document.querySelectorAll('.fx-sel.xy').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const key=btn.dataset.xy;
+    xySel[key]=!xySel[key];
+    btn.classList.toggle('on', xySel[key]);
+    evaluateEffects();
+  });
+});
+
+function updateXyVisual(){
+  const px=state.xyX*100;
+  const py=(1-state.xyY)*100;
+  xyPuck.style.left=`${px}%`;
+  xyPuck.style.top=`${py}%`;
+  xyCrossX.style.top=`${py}%`;
+  xyCrossY.style.left=`${px}%`;
+  const show=state.xyHolding?'block':'none';
+  xyCrossX.style.display=show;
+  xyCrossY.style.display=show;
+  xyPad.classList.toggle('active', state.xyHolding);
+}
+function setXyFromPointer(e){
+  const r=xyPad.getBoundingClientRect();
+  state.xyX=Math.max(0, Math.min(1, (e.clientX-r.left)/r.width));
+  state.xyY=Math.max(0, Math.min(1, 1-(e.clientY-r.top)/r.height));
+  updateXyVisual();
+  evaluateEffects();
+}
+
+xyHoldOffBtn.addEventListener('pointerdown',(e)=>{
+  e.stopPropagation();
+});
+xyHoldOffBtn.addEventListener('click',(e)=>{
+  e.stopPropagation();
+  state.xyHolding=false;
+  state.xyDragging=false;
+  updateXyVisual();
+  evaluateEffects();
+});
+
+xyPad.addEventListener('pointerdown',(e)=>{
+  if(e.target===xyHoldOffBtn) return;
+  e.preventDefault();
+  xyPad.setPointerCapture?.(e.pointerId);
+  state.xyDragging=true;
+  state.xyHolding=true;
+  setXyFromPointer(e);
+},{passive:false});
+xyPad.addEventListener('pointermove',(e)=>{
+  if(!state.xyDragging)return;
+  e.preventDefault();
+  setXyFromPointer(e);
+},{passive:false});
+const endXyDrag=(e)=>{
+  if(!state.xyDragging)return;
+  e?.preventDefault();
+  state.xyDragging=false;
+  updateXyVisual();
+  evaluateEffects();
+};
+xyPad.addEventListener('pointerup',endXyDrag,{passive:false});
+xyPad.addEventListener('pointercancel',endXyDrag,{passive:false});
+xyPad.addEventListener('lostpointercapture',endXyDrag,{passive:false});
+xyPad.addEventListener('contextmenu',e=>e.preventDefault());
+updateXyVisual();
+
+function renderPatternUI(){
+  patEl.textContent=currentPat;
+  patButtons.forEach(btn=>{
+    const p=btn.dataset.pat;
+    btn.classList.toggle('active', p===currentPat);
+    btn.classList.toggle('queued', p===queuedPat);
+  });
+}
+
+function makeBeatBuffer(spec=activeSpec(), bpm=BPM){
+  const sr=ctx.sampleRate, dur=loopDurOf(spec,bpm), n=Math.floor(sr*dur), TAU=Math.PI*2;
+  const totalSteps=totalStepsOf(spec);
+  const b=ctx.createBuffer(2,n,sr);
+  const L=b.getChannelData(0), R=b.getChannelData(1);
+  const step=n/totalSteps;
+  let seed=12345;
+  const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/2147483648-1; };
+  const put=(i,v)=>{ const idx=((i%n)+n)%n; L[idx]+=v; R[idx]+=v; };
+  const kick=(s,amp)=>{
+    const st=Math.floor(s*step), len=Math.floor(.3*sr); let ph=0;
+    for(let i=0;i<len;i++){
+      const x=i/sr; ph+=TAU*(44+130*Math.exp(-x*30))/sr;
+      const v=Math.tanh(4*Math.sin(ph))*Math.exp(-x*10)+rnd()*Math.exp(-x*350)*.5;
+      put(st+i,v*amp*.95);
+    }
+  };
+  const snare=(s,amp)=>{
+    const st=Math.floor(s*step), len=Math.floor(.24*sr);
+    for(let i=0;i<len;i++){
+      const x=i/sr;
+      const v=rnd()*Math.exp(-x*17)*.7+Math.sin(TAU*190*x)*Math.exp(-x*22)*.5+Math.sin(TAU*330*x)*Math.exp(-x*22)*.3
+              +Math.sin(TAU*873*x)*Math.exp(-x*20)*.12;
+      put(st+i,Math.tanh(3.2*v)*amp*.85);
+    }
+  };
+  const tom=(s,f0,amp)=>{
+    const st=Math.floor(s*step), len=Math.floor(.25*sr); let ph=0;
+    for(let i=0;i<len;i++){
+      const x=i/sr; ph+=TAU*f0*(1+.35*Math.exp(-x*30))/sr;
+      put(st+i,Math.tanh(3*Math.sin(ph))*Math.exp(-x*9)*amp*.8);
+    }
+  };
+  const hat=(s,amp,open)=>{
+    const st=Math.floor(s*step), len=Math.floor((open?.16:.04)*sr), dc=open?22:100; let prev=0;
+    for(let i=0;i<len;i++){
+      const x=i/sr, nz=rnd(), hp=nz-prev; prev=nz;
+      const v=hp*Math.exp(-x*dc)*.3+(Math.sin(TAU*6200*x)+Math.sin(TAU*8300*x))*Math.exp(-x*dc*.9)*.05;
+      put(st+i,Math.tanh(2*v)*amp*.8);
+    }
+  };
+  const crash=(s,amp)=>{
+    const st=Math.floor(s*step), len=Math.floor(.9*sr); let prev=0;
+    for(let i=0;i<len;i++){
+      const x=i/sr, nz=rnd(), hp=nz-prev; prev=nz;
+      let v=hp*Math.exp(-x*4.5)*.28;
+      for(const f of [3400,5200,7100,9300]) v+=Math.sin(TAU*f*x)*Math.exp(-x*5)*.035;
+      put(st+i,Math.tanh(2.2*v)*amp*.9);
+    }
+  };
+  const wood=(s,amp)=>{
+    const st=Math.floor(s*step), len=Math.floor(.05*sr);
+    for(let i=0;i<len;i++){
+      const x=i/sr;
+      put(st+i,(Math.sin(TAU*1250*x)*.5+Math.sin(TAU*2100*x)*.2)*Math.exp(-x*90)*amp);
+    }
+  };
+  barOffsetsOf(spec).forEach(({def,o},bi)=>{
+    for(const s of def.kick) kick(o+s,1);
+    for(const s of def.snare) snare(o+s,1);
+    for(const s of def.ghost) snare(o+s,.35);
+    def.fill.forEach((s,j)=>tom(o+s,[220,165,120][j%3],j===def.fill.length-1?1:.9));
+    for(const s of def.wood) wood(o+s,.6);
+    crash(o,bi===0?.8:.45);
+    for(let t=0;t<def.steps;t++){
+      if(def.open.includes(t)) hat(o+t,.7,true);
+      else hat(o+t,def.starts.includes(t)?.85:(t%2===0?.5:.28),false);
+    }
+  });
+  let pk=0;
+  for(let i=0;i<n;i++){ L[i]=R[i]=Math.tanh(2.4*L[i]); pk=Math.max(pk,Math.abs(L[i])); }
+  for(let i=0;i<n;i++){ L[i]/=pk/.9; R[i]/=pk/.9; }
+  return b;
+}
+
+function makeUwamonoBuffer(spec=activeSpec(), bpm=BPM){
+  const sr=ctx.sampleRate, dur=loopDurOf(spec,bpm), n=Math.floor(sr*dur), TAU=Math.PI*2;
+  const totalSteps=totalStepsOf(spec);
+  const b=ctx.createBuffer(1,n,sr), d=b.getChannelData(0);
+  const q=f=>Math.round(f*dur)/dur;
+  const pad=spec.pad.map(q);
+  for(let i=0;i<n;i++){
+    const t=i/sr, am=1+.2*Math.sin(TAU*4*i/n);
+    let v=0;
+    for(const f of pad) for(let k=1;k<=3;k++) v+=Math.sin(TAU*f*k*t)/k;
+    d[i]=v*am*.05;
+  }
+  const step=n/totalSteps;
+  const note=(s,f,amp,decay,hn,len)=>{
+    const st=Math.floor(s*step), L2=Math.floor(len*sr);
+    for(let i=0;i<L2;i++){
+      const x=i/sr, env=Math.min(1,x/.002)*Math.exp(-x*decay);
+      let v=0; for(let k=1;k<=hn;k++) v+=Math.sin(TAU*f*k*x)/Math.pow(k,1.3);
+      d[(st+i)%n]+=Math.tanh(1.1*v)*env*amp;
+    }
+  };
+  barOffsetsOf(spec).forEach(({def,o})=>{
+    for(let t=0;t<def.steps;t++) note(o+t,def.hi[t],def.starts.includes(t)?.3:.2,18,6,.22);
+    def.starts.forEach((t,j)=>note(o+t,def.low[j],.35,6,3,.4));
+  });
+  let pk=0; for(let i=0;i<n;i++) pk=Math.max(pk,Math.abs(d[i]));
+  for(let i=0;i<n;i++) d[i]/=pk/.9;
+  return b;
+}
+
+function makeReversedBuffer(b){
+  const r=ctx.createBuffer(b.numberOfChannels,b.length,b.sampleRate);
+  for(let ch=0;ch<b.numberOfChannels;ch++){
+    const s=b.getChannelData(ch), d=r.getChannelData(ch), n=s.length;
+    for(let i=0;i<n;i++) d[i]=s[n-1-i];
+  }
+  return r;
+}
+
+function angleOf(e){
+  const r=platter.getBoundingClientRect();
+  return Math.atan2(e.clientY-(r.top+r.height/2),e.clientX-(r.left+r.width/2));
+}
+function normDelta(a){
+  while(a>Math.PI)a-=Math.PI*2;
+  while(a<-Math.PI)a+=Math.PI*2;
+  return a;
+}
+function updateVisual(){
+  marker.style.transform=`rotate(${angle}rad)`;
+}
+
+function currentPhase(){
+  if(!scratchBuf)return 0;
+  const D=scratchBuf.duration;
+  const elapsedScaled=(ctx.currentTime-t0)*tempoRatio();
+  return (((elapsedScaled%D)+D)%D)/D;
+}
+function setPhaseAnchor(phase){
+  if(!ctx||!scratchBuf)return;
+  const p=((phase%1)+1)%1;
+  const D=scratchBuf.duration;
+  const r=Math.max(0.1,tempoRatio());
+  t0=ctx.currentTime-(p*D)/r;
+}
+
+let beatSrc=null, beatSrcGain=null;
+function stopBeatSrc(){
+  if(!beatSrc)return;
+  const sB=beatSrc, gB=beatSrcGain;
+  beatSrc=null; beatSrcGain=null;
+  const t=ctx.currentTime;
+  gB.gain.cancelScheduledValues(t);
+  gB.gain.setTargetAtTime(0,t,0.006);
+  try{sB.stop(t+0.05)}catch{}
+}
+function scheduleBeat(when=ctx.currentTime, phase=0, fadeIn=false){
+  stopBeatSrc();
+  const src=ctx.createBufferSource();
+  src.buffer=beatBuf; src.loop=true;
+  src.playbackRate.value=state.screwActive?Math.max(0.08,tempoRatio()*state.screwRate):tempoRatio();
+  const g=ctx.createGain();
+  if(fadeIn){ g.gain.setValueAtTime(0,when); g.gain.linearRampToValueAtTime(1,when+0.01); }
+  else g.gain.value=1;
+  src.connect(g); g.connect(beatGain);
+  const offset=Math.max(0,Math.min(beatBuf.duration-0.001,phase*beatBuf.duration));
+  src.start(when,offset);
+  beatSrc=src; beatSrcGain=g;
+}
+
+const UWA_LEVEL=.45, REV_SEC=1.8;
+let uwaSrc=null, uwaGain=null;
+function stopUwaNormal(){
+  if(!uwaSrc)return;
+  const sA=uwaSrc, gA=uwaGain; uwaSrc=null; uwaGain=null;
+  const t=ctx.currentTime;
+  gA.gain.cancelScheduledValues(t);
+  gA.gain.setTargetAtTime(0,t,0.006);
+  try{sA.stop(t+0.05)}catch{}
+}
+function startUwaNormal(when,phase,fadeIn){
+  stopUwaNormal();
+  const s2=ctx.createBufferSource();
+  s2.buffer=scratchBuf; s2.loop=true; s2.loopStart=0; s2.loopEnd=scratchBuf.duration;
+  s2.playbackRate.value=state.screwActive?Math.max(0.08,tempoRatio()*state.screwRate):tempoRatio();
+  const g=ctx.createGain();
+  const targetLevel = activeMomMode ? 0.01 : UWA_LEVEL;
+  if(fadeIn){ g.gain.setValueAtTime(0,when); g.gain.linearRampToValueAtTime(targetLevel,when+0.01); }
+  else g.gain.value=targetLevel;
+  s2.connect(g); g.connect(scratchGain);
+  const offset=Math.max(0,Math.min(scratchBuf.duration-0.001,phase*scratchBuf.duration));
+  s2.start(when,offset);
+  uwaSrc=s2; uwaGain=g;
+}
+
+let scrSrc=null, scrGain=null, scrDir=0;
+function scrStop(){
+  if(!scrSrc)return;
+  const sA=scrSrc, gA=scrGain;
+  scrSrc=null; scrGain=null; scrDir=0;
+  const t=ctx.currentTime;
+  gA.gain.cancelScheduledValues(t);
+  gA.gain.setTargetAtTime(0,t,0.008);
+  try{sA.stop(t+0.06)}catch{}
+}
+function scrStart(direction){
+  scrStop();
+  const D=scratchBuf.duration;
+  const s2=ctx.createBufferSource();
+  s2.buffer=direction<0?scratchRevBuf:scratchBuf;
+  s2.loop=true; s2.loopStart=0; s2.loopEnd=D;
+  s2.playbackRate.value=0.001;
+  const g=ctx.createGain(); g.gain.value=0;
+  s2.connect(g); g.connect(scratchGain);
+  const off=direction<0?(D-scratchPos):scratchPos;
+  s2.start(0,Math.max(0,Math.min(D-0.001,off)));
+  scrSrc=s2; scrGain=g; scrDir=direction;
+}
+function scrFollow(rate){
+  if(!scrSrc)return;
+  const t=ctx.currentTime;
+  scrSrc.playbackRate.setTargetAtTime(Math.max(0.001,rate),t,0.012);
+  scrGain.gain.setTargetAtTime(rate>0.03?UWA_LEVEL:0,t,0.012);
+}
+
+function exitScratchMode(){
+  if(!scratchingActive)return;
+  scratchingActive=false;
+  scrStop();
+  state.scrNorm=0;
+  state.scrSpeedText='0.00';
+  if(playing && !uwaSrc){
+    startUwaNormal(ctx.currentTime,currentPhase(),true);
+  }
+}
+
+let scratchPos=0, lastLoopPhase=0;
+
+function audioLoop(){
+  if(!ctx||!playing)return;
+  const phase=currentPhase();
+  phaseEl.textContent=phase.toFixed(2);
+  if(queuedPat && phase<lastLoopPhase){
+    const target=queuedPat;
+    queuedPat=null;
+    applyPatternImmediate(target,0);
+    renderPatternUI();
+  }
+  lastLoopPhase=phase;
+  if(dragging && scratchingActive && scrSrc && performance.now()-lastT>45){
+    velocity=0;
+    scrFollow(0);
+    state.scrNorm=0;
+    state.scrSpeedText='0.00';
+    updateMonitors();
+  }
+  requestAnimationFrame(audioLoop);
+}
+
+function beginScratch(e){
+  if(!ctx||!playing)return;
+  e.preventDefault();
+  platter.setPointerCapture?.(e.pointerId);
+  dragging=true;
+  lastPointerAngle=angleOf(e);
+  // HOLDがOFF、またはまだラッチされていなければタッチ位置を基準0にする
+  if(!state.ttHoldEnabled || !state.ttLatched){
+    ttDeltaAngle=0;
+  }
+  if(state.ttHoldEnabled){
+    state.ttLatched=true;
+  }
+  lastT=performance.now();
+  velocity=0;
+  dir=1;
+
+  if(ttSel.scr){
+    scratchingActive=true;
+    scratchPos=currentPhase()*scratchBuf.duration;
+    stopUwaNormal();
+    scrDir=0;
+    state.scrSpeedText='0.00';
+  }
+  evaluateEffects();
+}
+
+function moveScratch(e){
+  if(!dragging||!ctx||!playing)return;
+  e.preventDefault();
+  const a=angleOf(e);
+  let da=normDelta(a-lastPointerAngle);
+  const now=performance.now(), dt=Math.max(1,now-lastT)/1000;
+  const inst=da/dt/(Math.PI*2);
+  velocity=velocity*.45+inst*.55;
+  if(velocity>0.05 && dir<0) dir=1;
+  else if(velocity<-0.05 && dir>0) dir=-1;
+
+  angle += da;
+  ttDeltaAngle += da;
+  lastPointerAngle=a; lastT=now;
+  updateVisual();
+
+  if(ttSel.scr){
+    if(!scratchingActive){
+      scratchingActive=true;
+      scratchPos=currentPhase()*scratchBuf.duration;
+      stopUwaNormal();
+      scrDir=0;
+    }
+    scratchPos += da/(Math.PI*2)*REV_SEC;
+    scratchPos=((scratchPos%scratchBuf.duration)+scratchBuf.duration)%scratchBuf.duration;
+    const rate=Math.abs(velocity)*REV_SEC;
+    state.scrNorm=Math.min(1, rate/3.0);
+    state.scrSpeedText=rate.toFixed(2);
+    if(dir!==scrDir) scrStart(dir);
+    scrFollow(rate);
+  }
+  evaluateEffects();
+}
+
+function endScratch(e){
+  if(!dragging)return;
+  e?.preventDefault();
+  dragging=false;
+  // HOLD: OFF のときは指を離したら位置変位をリセット。HOLD: ON のときは位置を維持
+  if(!state.ttHoldEnabled){
+    state.ttLatched=false;
+    ttDeltaAngle=0;
+  }
+  if(scratchingActive){
+    exitScratchMode();
+  }
+  velocity=0;
+  evaluateEffects();
+}
+
+function applyPatternImmediate(patKey, keepPhase=null){
+  if(!PATTERNS[patKey])return;
+  currentPat=patKey;
+  renderPatternUI();
+  if(!ctx)return;
+  const spec=PATTERNS[currentPat];
+  const f=keepPhase!==null ? keepPhase : currentPhase();
+  bufferBPM=BPM;
+  beatBuf=makeBeatBuffer(spec,bufferBPM);
+  scratchBuf=makeUwamonoBuffer(spec,bufferBPM);
+  scratchRevBuf=makeReversedBuffer(scratchBuf);
+  if(playing){
+    const now=ctx.currentTime;
+    setPhaseAnchor(f);
+    lastLoopPhase=f;
+    scheduleBeat(now,f,true);
+    if(!scratchingActive) startUwaNormal(now,f,true);
+    statusEl.textContent=`PLAY [PAT ${currentPat}] BPM ${BPM}`;
+  }
+}
+
+function selectPattern(patKey){
+  if(!PATTERNS[patKey])return;
+  if(patKey===currentPat && !queuedPat)return;
+  if(switchAtLoopEnd && playing && ctx){
+    queuedPat=patKey;
+    renderPatternUI();
+    statusEl.textContent=`QUEUED PAT ${patKey}`;
+  }else{
+    queuedPat=null;
+    applyPatternImmediate(patKey, playing && ctx ? currentPhase() : 0);
+  }
+}
+
+let rebuildTimer=null;
+function rebuildBuffersAtCurrentBPM(){
+  if(!ctx || dragging || bufferBPM===BPM)return;
+  const f=currentPhase();
+  bufferBPM=BPM;
+  beatBuf=makeBeatBuffer(activeSpec(),bufferBPM);
+  scratchBuf=makeUwamonoBuffer(activeSpec(),bufferBPM);
+  scratchRevBuf=makeReversedBuffer(scratchBuf);
+  if(playing){
+    const now=ctx.currentTime;
+    setPhaseAnchor(f);
+    lastLoopPhase=f;
+    scheduleBeat(now,f,true);
+    if(!scratchingActive) startUwaNormal(now,f,true);
+  }
+}
+
+function setBPM(v){
+  v=Math.max(80,Math.min(180,Math.round(v)));
+  if(v===BPM && bpmSlider.value===String(v) && bpmEl.textContent===String(v))return;
+  const f=ctx && playing ? currentPhase() : 0;
+  BPM=v;
+  bpmEl.textContent=BPM;
+  bpmSlider.value=String(BPM);
+  if(!ctx)return;
+  if(playing){
+    setPhaseAnchor(f);
+    applyScrewAndTempo();
+    statusEl.textContent=`PLAY [PAT ${currentPat}] BPM ${BPM}`;
+  }
+  clearTimeout(rebuildTimer);
+  rebuildTimer=setTimeout(rebuildBuffersAtCurrentBPM,350);
+}
+
+const keypadModal=document.getElementById('keypadModal');
+const keypadScreen=document.getElementById('keypadScreen');
+let kpDigits='';
+function refreshKeypad(){ keypadScreen.textContent = kpDigits.length ? kpDigits : '---'; }
+function openKeypad(){ kpDigits=''; refreshKeypad(); keypadModal.classList.add('open'); }
+function closeKeypad(){ keypadModal.classList.remove('open'); }
+bpmDisplayBtn.addEventListener('click', openKeypad);
+keypadModal.addEventListener('click', (e)=>{ if(e.target===keypadModal) closeKeypad(); });
+document.querySelectorAll('.keypad-grid button[data-k]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    if(kpDigits.length>=3) return;
+    kpDigits += btn.dataset.k;
+    refreshKeypad();
+  });
+});
+document.getElementById('kpClear').addEventListener('click',()=>{ kpDigits=''; refreshKeypad(); });
+document.getElementById('kpOk').addEventListener('click',()=>{
+  if(kpDigits.length>0){
+    const parsed=parseInt(kpDigits,10);
+    if(!Number.isNaN(parsed)) setBPM(parsed);
+  }
+  closeKeypad();
+});
+
+window.BeatSyncAPI={
+  setBPM:(bpm)=>setBPM(bpm),
+  setPhase:(phase)=>{
+    if(!ctx||!playing||!scratchBuf)return;
+    const p=((phase%1)+1)%1;
+    const now=ctx.currentTime;
+    setPhaseAnchor(p);
+    lastLoopPhase=p;
+    scheduleBeat(now,p,true);
+    if(!scratchingActive) startUwaNormal(now,p,true);
+  },
+  triggerEvent:(type,payload={})=>{
+    if(type==='PLAY') return startPlayback();
+    if(type==='STOP') return stopPlayback();
+    if(type==='BPM' && typeof payload.bpm==='number') return setBPM(payload.bpm);
+    if(type==='PATTERN' && payload.pattern) return selectPattern(payload.pattern);
+  },
+  getState:()=>({ playing, pat:currentPat, queuedPat, bpm:BPM, ttSel:{...ttSel}, ttHoldEnabled:state.ttHoldEnabled, ttLatched:state.ttLatched, xySel:{...xySel}, xyHolding:state.xyHolding, phase:ctx&&scratchBuf?currentPhase():0 })
+};
+
+async function startPlayback(){
+  if(!ctx){
+    ctx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
+    setupFxChain();
+    bufferBPM=BPM;
+    beatBuf=makeBeatBuffer(activeSpec(),bufferBPM);
+    scratchBuf=makeUwamonoBuffer(activeSpec(),bufferBPM);
+    scratchRevBuf=makeReversedBuffer(scratchBuf);
+  }
+  if(ctx.state==='suspended') await ctx.resume();
+  if(playing)return;
+  playing=true;
+  queuedPat=null;
+  renderPatternUI();
+  t0=ctx.currentTime+0.05;
+  lastLoopPhase=0;
+  scheduleBeat(t0,0,true);
+  startUwaNormal(t0,0,true);
+  togglePlayBtn.textContent='STOP';
+  togglePlayBtn.classList.add('playing');
+  statusEl.textContent=`PLAY [PAT ${currentPat}] BPM ${BPM}`;
+  evaluateEffects();
+  requestAnimationFrame(audioLoop);
+}
+
+function stopPlayback(){
+  if(!playing)return;
+  playing=false;
+  dragging=false;
+  state.ttLatched=false;
+  ttDeltaAngle=0;
+  scratchingActive=false;
+  state.xyDragging=false;
+  state.screwActive=false;
+  queuedPat=null;
+  updateXyVisual();
+  stopMomentaryAudio();
+  renderPatternUI();
+  scrStop();
+  stopUwaNormal();
+  stopBeatSrc();
+  evaluateEffects();
+  togglePlayBtn.textContent='START';
+  togglePlayBtn.classList.remove('playing');
+  phaseEl.textContent='0.00';
+  statusEl.textContent='STOP — STARTを押すと再開します';
+}
+
+togglePlayBtn.addEventListener('click',()=>{
+  if(playing) stopPlayback();
+  else startPlayback();
+});
+
+modeNowBtn.addEventListener('click',()=>{
+  switchAtLoopEnd=false;
+  modeNowBtn.classList.add('active');
+  modeBarBtn.classList.remove('active');
+});
+modeBarBtn.addEventListener('click',()=>{
+  switchAtLoopEnd=true;
+  modeBarBtn.classList.add('active');
+  modeNowBtn.classList.remove('active');
+});
+
+patButtons.forEach(btn=>{
+  btn.addEventListener('click',()=>selectPattern(btn.dataset.pat));
+});
+
+bpmSlider.addEventListener('input',()=>setBPM(Number(bpmSlider.value)));
+
+platter.addEventListener('pointerdown',beginScratch,{passive:false});
+platter.addEventListener('pointermove',moveScratch,{passive:false});
+platter.addEventListener('pointerup',endScratch,{passive:false});
+platter.addEventListener('pointercancel',endScratch,{passive:false});
+platter.addEventListener('lostpointercapture',endScratch,{passive:false});
+platter.addEventListener('contextmenu',e=>e.preventDefault());
+
+updateMonitors();
+</script>
+</body>
+</html>
