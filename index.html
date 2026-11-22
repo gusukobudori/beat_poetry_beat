@@ -1525,7 +1525,7 @@ function drawNoise(c,t,msg1,msg2){
 function drawCarve(c,t,axis,mag,opts){
   const g=c.g, W=c.W, H=c.H, N=c.freqN, F=axis==='log'?c.logF:c.linF;
   const top=24, bot=H-8, plotH=bot-top;
-  if(!opts.noTrail) fade(c,.32);
+  if(!opts.noTrail) fade(c,.32); else { g.fillStyle='#000'; g.fillRect(0,0,W,H); }   // 残光なしのときは毎フレーム消す（前の絵が重なって崩れていた）
   g.globalAlpha=.16; g.strokeStyle=c.theme.main; g.lineWidth=1;       // 目盛り
   g.beginPath();
   if(axis==='log'){ for(const f of [100,1000,10000]){ const x=Math.log(f/30)/Math.log(18000/30)*W; g.moveTo(x,top); g.lineTo(x,bot); } }
@@ -1604,18 +1604,16 @@ function drawLiveWave(c,t,active){
   g.restore();
 }
 
-function filterVisualMag(type,freq,Q,Fs){
-  // 表示専用。実音のQは最大12のまま、画面では過度な「ハウリング状の山」を抑える。
-  Q=Math.max(.5,Math.min(3.2,Q));
-  const w=2*Math.PI*freq/Fs, cw=Math.cos(w), sw=Math.sin(w), alpha=sw/(2*Q);
-  let b0,b1,b2,a0=1+alpha,a1=-2*cw,a2=1-alpha;
-  if(type==='lpf'){ b0=(1-cw)/2; b1=1-cw; b2=b0; }
-  else { b0=(1+cw)/2; b1=-(1+cw); b2=b0; }
-  const A0=b0/a0,A1=b1/a0,A2=b2/a0,B1=a1/a0,B2=a2/a0;
-  const nr=Math.cos(w), ni=-Math.sin(w), n2r=Math.cos(2*w), n2i=-Math.sin(2*w);
-  const dr=1+B1*nr+B2*n2r, di=B1*ni+B2*n2i;
-  const rr=A0+A1*nr+A2*n2r, ri=A1*ni+A2*n2i;
-  return Math.hypot(rr,ri)/Math.max(1e-6,Math.hypot(dr,di));
+function filterVisualMag(type,fc,Q,f,Fs){
+  // 表示専用の2次フィルター特性。fc=カットオフ、f=いま評価する周波数（画面の横位置ごとに変える）
+  Q=Math.max(.5,Math.min(4.2,Q));      // Q(リニア)。実際のフィルターのQ(dB)を変換して渡す
+  const w0=2*Math.PI*Math.min(fc,Fs*.49)/Fs, cw=Math.cos(w0), sw=Math.sin(w0), al=sw/(2*Q);
+  let b0,b1,b2;
+  if(type==='lpf'){ b0=(1-cw)/2; b1=1-cw; b2=b0; } else { b0=(1+cw)/2; b1=-(1+cw); b2=b0; }
+  const a0=1+al, a1=-2*cw, a2=1-al;
+  const w=2*Math.PI*f/Fs, c1=Math.cos(w), s1=Math.sin(w), c2=Math.cos(2*w), s2=Math.sin(2*w);
+  const nr=b0+b1*c1+b2*c2, ni=-(b1*s1+b2*s2), dr=a0+a1*c1+a2*c2, di=-(a1*s1+a2*s2);
+  return Math.hypot(nr,ni)/Math.max(1e-6,Math.hypot(dr,di));
 }
 
 function drawXyCrt(c,t,dt){
@@ -1629,8 +1627,8 @@ function drawXyCrt(c,t,dt){
     // フィルター表示は実際のWebAudio Qをそのまま描かず、視認性のための表示Qに制限。
     const freq=k==='lpf'?state.lpfFreq:state.hpfFreq;
     const visualQ=k==='lpf'?state.lpfQ:state.hpfQ;
-    for(let i=0;i<c.freqN;i++) c.mag[i]=filterVisualMag(k,freq,visualQ,ctx.sampleRate);
-    drawCarve(c,t,'log',c.mag,{dim:!on,cut:on?freq:0,expo:.85,dbMin:-36,dbMax:10,reso:false,noTrail:true});
+    for(let i=0;i<c.freqN;i++) c.mag[i]=filterVisualMag(k,freq,Math.pow(10,visualQ/20),c.logF[i],ctx.sampleRate);
+    drawCarve(c,t,'log',c.mag,{dim:!on,cut:on?freq:0,expo:1.7,dbMin:-48,dbMax:21,reso:true,noTrail:true});
     drawLiveWave(c,t,on);
     hud(c,k.toUpperCase()+' FILTER',
       k==='lpf' ? (on?`${freq>=1000?(freq/1000).toFixed(1)+'k':Math.round(freq)+'Hz'} Q${visualQ.toFixed(1)}`:'HOLD STANDBY')
@@ -1731,100 +1729,104 @@ function drawBitScene(c,t,on){
   }
 }
 
-// ---- ターンテーブル側モニター：エフェクト連動ドットダンサー ----
+// ---- ターンテーブル側モニター：ドットダンサー v2 ----
+// ・踊りの周期を「2拍で1回」に（以前は1ループ=約4秒で1回しか動かなかった）。腕は頭の上まで、脚は大きく蹴る
+// ・スクラッチ=掴んだ位置に合わせて前後に踊る／リピート=短い区間を踊り直す
+// ・スタッター=コマ送り（フィルム枠・姿勢が飛ぶ・残像・明滅）／スクリュー=速さに応じて踊りが本当に遅く・速くなる
+let danceAcc=0;
+function dancePose(a,e){
+  const s1=Math.sin(a), pos=Math.max(0,s1), neg=Math.max(0,-s1);
+  return { lean:s1*.30*e, bob:Math.abs(Math.sin(a))*e, sway:s1*e*.9,
+    shL:.25+2.4*pos*e, elL:.2+1.3*pos*e, shR:.25+2.4*neg*e, elR:.2+1.3*neg*e,
+    hipL:.7*s1*e, knL:.15+1.2*pos*e, hipR:-.7*s1*e, knR:.15+1.2*neg*e };
+}
+function drawDancer(g,cx,cy,s,P,fill){
+  g.save(); g.fillStyle=fill; g.shadowColor=fill; g.shadowBlur=s*.9;
+  const blk=(x,y,w=1.25)=>g.fillRect(Math.round(x-w*s/2),Math.round(y-w*s/2),Math.max(1,Math.round(w*s)),Math.max(1,Math.round(w*s)));
+  const bx=cx+P.sway*s*1.6, by=cy+s*3-P.bob*s*2.4;               // 腰
+  const up=(L)=>[bx+Math.sin(P.lean)*L*s, by-Math.cos(P.lean)*L*s];
+  const [sx,sy]=up(5.5), [hx,hy]=up(8.8);
+  for(let i=0;i<=6;i++){ const t=i/6; blk(bx+(sx-bx)*t,by+(sy-by)*t,1.5); }   // 胴
+  blk(hx,hy,3);                                                              // 頭
+  const limb=(x0,y0,a1,l1,a2,l2)=>{                                          // 角度は真下=0、+で画面の右へ
+    let x=x0,y=y0;
+    for(let i=1;i<=3;i++){ x=x0+Math.sin(a1)*l1*s*i/3; y=y0+Math.cos(a1)*l1*s*i/3; blk(x,y); }
+    for(let i=1;i<=3;i++) blk(x+Math.sin(a1+a2)*l2*s*i/3, y+Math.cos(a1+a2)*l2*s*i/3);
+  };
+  limb(sx-s*1.2,sy+s*.4,-P.shL,3.6,-P.elL*.7,3.4);                           // 左腕
+  limb(sx+s*1.2,sy+s*.4, P.shR,3.6, P.elR*.7,3.4);                           // 右腕
+  limb(bx-s*.8,by,P.hipL-.1,4,-P.knL,4);                                     // 左脚
+  limb(bx+s*.8,by,P.hipR+.1,4, P.knR,4);                                     // 右脚
+  g.restore();
+}
 function drawTtDancer(c,t,dt){
   const g=c.g,W=c.W,H=c.H,k=topSel(ttOrder,ttSel),mv=k?monView[k]:null,on=!!(mv&&mv.active),th=c.theme;
   c.el.classList.toggle('live',on);
   g.fillStyle='#000'; g.fillRect(0,0,W,H);
   if(!ctx||!scratchBuf){ drawNoise(c,t,'TT DANCER',!ctx?'PRESS START':'NO AUDIO'); return; }
 
-  const beatNow=playing ? currentPhase() : 0;
-  let phase=beatNow, rate=1, dirn=1, repeatDiv=1, stutterDiv=1;
-  if(k==='repeat'&&on){
-    repeatDiv=REPEAT_DIVS[state.repeatIdx]||1;
-    const span=1/repeatDiv;
-    const local=((beatNow%span)+span)%span/span;
-    phase=local;
-  }
-  if(k==='stutter'&&on){
-    stutterDiv=STUTTER_DIVS[state.stutterIdx]||1;
-    const frames=Math.max(2,stutterDiv);
-    phase=Math.floor(beatNow*frames)/frames;
-  }
-  if(k==='screw'&&on){
-    rate=state.screwRate||1;
-    phase=((beatNow*rate)%1+1)%1;
-  }
-  if(k==='scr'&&on){
-    rate=Math.max(.15,Math.abs(velocity)/1.6); dirn=dir;
-    phase=((scratchingActive?(scratchPos/Math.max(.001,scratchBuf.duration)):beatNow)*dirn%1+1)%1;
-  }
-  const p=((phase%1)+1)%1;
-  const s=Math.max(3,Math.floor(Math.min(W,H)/34));
-  const cx=W/2, cy=H*.52;
-  let core=th.core, main=th.main;
-  if(k==='repeat'&&on){core='#ffd166';main='#ff7a00';}
-  if(k==='stutter'&&on){core='#ff7ae5';main='#8b3dff';}
-  if(k==='screw'&&on){core=rate<1?'#63d8ff':'#fff06a';main=rate<1?'#2588a8':'#d5b500';}
-  if(k==='scr'&&on){core='#ffffff';main='#7df6ff';}
+  const D=scratchBuf.duration, beatSec=60/BPM, cycSec=beatSec*2;              // 2拍で1回踊る
+  const beatPos=playing?currentPhase()*D:0, a0=beatPos/cycSec*Math.PI*2;
+  const s=Math.max(3,Math.floor(Math.min(W,H)/30)), cx=W/2, cy=H*.50;
+  let core=th.core, main=th.main, label='BEAT DANCE';
 
-  // リピート：短い区間を何度も「踊り直す」＋境界で残像を出す
-  if(k==='repeat'&&on){
-    const boundary=(Math.sin(p*Math.PI*2)*.5+.5);
-    for(let i=3;i>=1;i--){
-      g.save(); g.globalAlpha=.08+i*.04;
-      g.translate((i-2)*s*5*boundary,0);
-      drawDancer(g,cx,cy,s,p,1,main,.82); g.restore();
-    }
-    if(Math.floor(p*repeatDiv)%2===0){g.fillStyle='rgba(255,150,40,.12)';g.fillRect(0,0,W,H);}
-  }
-
-  // スタッター：動きを止めたコマを連続表示し、ブロック状の欠落を加える
-  if(k==='stutter'&&on){
-    const frame=Math.floor(beatNow*stutterDiv), holdPhase=(frame%2)*.5;
-    g.fillStyle='rgba(160,60,255,.10)';g.fillRect(0,0,W,H);
-    for(let i=0;i<6;i++){
-      const xx=((i*37+frame*13)%Math.max(1,W-10));
-      const yy=((i*19+frame*7)%Math.max(1,H-8));
-      g.fillStyle=main; g.globalAlpha=.22; g.fillRect(xx,yy,3+s*.5,2+s*.35);
-    }
+  if(k==='scr'&&on){                                                          // スクラッチ：掴んだ位置に合わせて前後に踊る
+    const dirn=dir, mag=Math.min(1,Math.abs(velocity)/3);
+    const a=(scratchingActive?scratchPos:beatPos)/cycSec*Math.PI*2;
+    core='#ffffff'; main='#7df6ff';
+    for(let i=6;i>=1;i--){ g.save(); g.globalAlpha=.06+(6-i)*.03; g.translate(-dirn*i*s*3.2*mag,0); drawDancer(g,cx,cy,s,dancePose(a-dirn*i*.12*mag,1),main); g.restore(); }
+    drawDancer(g,cx,cy,s,dancePose(a,1.05),core);
+    label=`SCRATCH ${dirn>0?'▶':'◀'} ${Math.abs(velocity).toFixed(1)}`;
+  }else if(k==='repeat'&&on){                                                 // リピート：短い区間を何度も踊り直す
+    const div=REPEAT_DIVS[state.repeatIdx]||1, span=D/div, local=(((beatPos%span)+span)%span)/span;
+    const a=local*Math.PI*2*Math.max(1,Math.min(2,div/8));
+    core='#ffd166'; main='#ff7a00';
+    const bnd=Math.sin(local*Math.PI*2)*.5+.5;
+    for(let i=3;i>=1;i--){ g.save(); g.globalAlpha=.08+i*.05; g.translate((i-2)*s*6*bnd,0); drawDancer(g,cx,cy,s,dancePose(a,.9),main); g.restore(); }
+    if(Math.floor(local*4)%2===0){ g.fillStyle='rgba(255,150,40,.12)'; g.fillRect(0,0,W,H); }
+    drawDancer(g,cx,cy,s,dancePose(a,1.05),core);
+    label=`REPEAT 1/${div}`;
+  }else if(k==='stutter'&&on){                                                // スタッター：コマ送り
+    const div=STUTTER_DIVS[state.stutterIdx]||1, sl=beatSec*4/div;
+    const stepHz=Math.min(10,Math.max(3,1/sl)), fr=Math.floor(t*stepHz), fph=(t*stepHz)%1;   // 目で追えるコマ数に丸める
+    const poseOf=(f)=>(((f*3)%8)/8)*Math.PI*2;                                // 毎コマ大きく違う姿勢へ飛ぶ
+    core='#ff7ae5'; main='#8b3dff';
+    g.fillStyle='rgba(160,60,255,.10)'; g.fillRect(0,0,W,H);
+    const perf=Math.max(9,s*2.4), off=(fr%2)*perf*.5;                          // フィルム枠：1コマごとにカクッと送られる
+    g.fillStyle='rgba(255,122,229,.55)'; g.fillRect(0,0,W,s*1.6); g.fillRect(0,H-s*1.6-16,W,s*1.6);
+    g.fillStyle='#000';
+    for(let x=-perf+off;x<W+perf;x+=perf){ g.fillRect(x+perf*.2,s*.35,perf*.5,s*.9); g.fillRect(x+perf*.2,H-s*1.6-16+s*.35,perf*.5,s*.9); }
+    for(let i=3;i>=1;i--){ g.save(); g.globalAlpha=.07+(3-i)*.06; g.translate(-i*s*3.6,0); drawDancer(g,cx,cy,s,dancePose(poseOf(fr-i),1.05),main); g.restore(); }   // 直前のコマの残像
+    if(fph<.76||sl>.12) drawDancer(g,cx,cy,s,dancePose(poseOf(fr),1.1),core);   // 次のコマへ切り替わる直前は一瞬消える
+    g.font=`700 11px ${MONO}`; g.textAlign='right'; g.textBaseline='top'; g.fillStyle=core; g.fillText('F'+String(fr%100).padStart(2,'0'),W-8,s*1.6+4);
+    label=`STUTTER 1/${div}`;
+  }else if(k==='screw'&&on){                                                  // スクリュー：踊りの速さそのものが遅く・速くなる
+    const rate=state.screwRate||1, slow=rate<.97, fast=rate>1.03;
+    danceAcc+=dt*rate*Math.PI*2/cycSec;
+    core=slow?'#63d8ff':fast?'#fff06a':th.core; main=slow?'#2588a8':fast?'#d5b500':th.main;
+    const sx=slow?1+(1-rate)*.9:fast?Math.max(.62,1-(rate-1)*.5):1, sy=slow?1-(1-rate)*.25:fast?1+(rate-1)*.18:1;
+    g.save(); g.translate(0,s*2.2); g.translate(cx,cy+s*3); g.scale(sx,sy); g.translate(-cx,-(cy+s*3));
+    if(slow){ for(let i=4;i>=1;i--){ g.save(); g.globalAlpha=.05+(4-i)*.03; g.translate(i*s*1.1*(1-rate),i*s*.5*(1-rate)); drawDancer(g,cx,cy,s,dancePose(danceAcc-i*.25*(1-rate),.8),main); g.restore(); } }
+    if(fast){ g.fillStyle=main; for(let i=0;i<9;i++){ const yy=cy-s*8+((i*53+t*400*rate)%(s*20)), ll=s*(4+(rate-1)*8), xx=(W*.12+((i*97+t*900*rate)%(W*.76))); g.globalAlpha=.35; g.fillRect(xx,yy,ll,2); } g.globalAlpha=1; }
+    drawDancer(g,cx,cy,s,dancePose(danceAcc,slow?.8:1.05),core);
+    g.restore();
+    // 速さメーター（中央=1.0x）と流れる矢印
+    const mx=W*.12, mw=W*.76, my=H-s*5.4, p=(rate-.08)/1.77, one=(1-.08)/1.77;
+    g.fillStyle='rgba(255,255,255,.12)'; g.fillRect(mx,my,mw,5);
+    g.fillStyle=main; g.fillRect(mx+mw*Math.min(p,one),my,mw*Math.abs(p-one),5);
+    g.fillStyle='#fff'; g.fillRect(mx+mw*one-1,my-4,2,13); g.fillStyle=core; g.fillRect(mx+mw*p-2,my-5,4,15);
+    g.font=`700 ${Math.round(s*2.2)}px ${MONO}`; g.textAlign='center'; g.textBaseline='middle'; g.fillStyle=core; g.globalAlpha=.65+.35*Math.sin(t*8);
+    g.fillText(slow?'◀◀  SLOW':fast?'FAST  ▶▶':'1.00x',cx,H*.09); g.globalAlpha=1;
+    g.font=`700 ${Math.round(s*1.5)}px ${MONO}`; g.fillStyle=main; g.globalAlpha=.8;
+    const ch=slow?'◀':'▶', n=5, move=((t*(slow?-1:1)*rate*1.6)%1+1)%1;
+    if(slow||fast) for(let i=0;i<n;i++){ const xx=mx+((i+move)/n)*mw; g.fillText(ch,xx,H*.19); }
     g.globalAlpha=1;
-    drawDancer(g,cx,cy,s,holdPhase,1,core,1);
-  }else if(k!=='repeat'||!on){
-    if(k==='scr'&&on){
-      const trails=6, mag=Math.min(1,Math.abs(velocity)/3);
-      for(let i=trails;i>=1;i--){
-        g.save(); g.globalAlpha=.06+(trails-i)*.025;
-        g.translate(cx-dirn*i*s*3*mag,0); drawDancer(g,cx,cy,s,p,dirn,main,.9); g.restore();
-      }
-    }
-    drawDancer(g,cx,cy,s,p,dirn,core,1);
-  }else{
-    drawDancer(g,cx,cy,s,p,1,core,1);
+    label=`SCREW ${rate.toFixed(2)}x ${slow?'SLOW':fast?'FAST':''}`;
+  }else{                                                                       // 通常：ビートに合わせて踊る
+    const e=on?1:.9; drawDancer(g,cx,cy,s,dancePose(a0,e),core);
   }
 
-  g.font=`700 10px ${MONO}`;g.textAlign='left';g.textBaseline='bottom';g.fillStyle=main;
-  const label=k==='repeat'?`REPEAT 1/${repeatDiv}`:k==='stutter'?`STUTTER 1/${stutterDiv}`:k==='screw'?`SCREW ${rate.toFixed(2)}x ${rate<1?'SLOW':'FAST'}`:k==='scr'?`SCRATCH ${dirn>0?'▶':'◀'} ${Math.abs(velocity).toFixed(1)}`:'BEAT DANCE';
-  g.fillText(label,8,H-7);
-}
-function drawDancer(g,cx,cy,s,p,dirn,fill,energy=1){
-  g.save();
-  const swing=Math.sin(p*Math.PI*2)*energy, fast=Math.sin(p*Math.PI*4)*energy;
-  const sway=Math.round(swing*1.6), bob=Math.round(Math.abs(Math.sin(p*Math.PI))*s*.8*energy);
-  const armL=Math.round(swing*2.2), armR=Math.round(-swing*2.2), legL=Math.round(-fast*1.8), legR=Math.round(fast*1.8);
-  g.fillStyle=fill;g.shadowColor=fill;g.shadowBlur=s*.8;
-  const q=(x,y,w=1,h=1)=>g.fillRect(Math.round(cx+x*s+sway),Math.round(cy+y*s-bob),Math.max(1,Math.round(w*s)),Math.max(1,Math.round(h*s)));
-  // 頭・胴・腰
-  q(-2,-9,4,3); q(-3,-6,6,6); q(-2,0,4,2);
-  // 大きく振る腕
-  q(-6,-5+armL*.15,2,3); q(-7,-3+armL*.35,2,3); q(-8,-1+armL*.55,2,2);
-  q(4,-5+armR*.15,2,3); q(5,-3+armR*.35,2,3); q(6,-1+armR*.55,2,2);
-  // 左右交互に膝を上げる脚
-  q(-2,2,2,3); q(-1+legL*.25,5,2,3); q(-3+legL*.55,8,3,1);
-  q(0,2,2,3); q(1+legR*.25,5,2,3); q(1+legR*.55,8,3,1);
-  // 肩のアクセント
-  if(Math.abs(swing)>.55){q(-4,-6,1,2);q(3,-6,1,2);}
-  g.shadowBlur=0;g.restore();
+  g.font=`700 10px ${MONO}`; g.textAlign='left'; g.textBaseline='bottom'; g.fillStyle=main; g.fillText(label,8,H-7);
 }
 
 const ttCrt=makeCrt('ttCrt',{main:'#5fd0f0',core:'#c9f4ff',dim:'#3b8ba3'},drawTtDancer);
